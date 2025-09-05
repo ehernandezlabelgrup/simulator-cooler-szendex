@@ -1,0 +1,30 @@
+{
+  "name": "simulador-nevera-mqtt",
+  "version": "1.0.0",
+  "description": "Simulador MQTT de nevera que envía mensajes con diferentes estados (preparado, en tránsito, en extracción, en introducción)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "configurar": "node configurar-ruta.js",
+    "generar-ids": "node generar-ids.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mqtt",
+    "simulator",
+    "nevera",
+    "iot",
+    "mosquitto",
+    "nodejs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "mqtt": "^5.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
