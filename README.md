@@ -1,4 +1,4 @@
-# 🧊 Simulador de Neveras IoT - Szendesk
+# 🧊 Simulador de Neveras IoT - Szendex
 
 Este proyecto contiene simuladores para neveras IoT que permiten generar datos de transporte y ubicación en tiempo real. Puedes elegir entre dos versiones según tus necesidades de integración.
 
