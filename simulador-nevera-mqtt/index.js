@@ -3,61 +3,53 @@ require('dotenv').config();
 
 // Configuración del broker MQTT
 const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://localhost:1883';
-const MQTT_TOPIC = process.env.MQTT_TOPIC || 'nevera/evento';
 
 // Configuración del simulador
-const SERIAL_NEVERA = process.env.SERIAL_NEVERA || '550e8400-e29b-41d4-a716-446655440000';
-const ID_PREPARACION = process.env.ID_PREPARACION || 'PREP-2024-001';
-const ID_EXTRACCION = process.env.ID_EXTRACCION || 'EXTR-2024-001';
-const INTERVALO_MENSAJES = parseInt(process.env.INTERVALO_MENSAJES) || 5000; // 5 segundos
+const SERIAL_NEVERA = parseInt(process.env.SERIAL_NEVERA) || 123456789;
+const ORIGEN_SERVICIO = parseInt(process.env.ORIGEN_SERVICIO) || 1;
+const DESTINO_SERVICIO = parseInt(process.env.DESTINO_SERVICIO) || 2;
+const TIPO_SERVICIO = parseInt(process.env.TIPO_SERVICIO) || 1; // 1: vacunas, 2: muestras, 3: medicamentos, 4: no servicio
+const INTERVALO_MENSAJES = 5000; // Fijo a 5 segundos como solicitaste
+const VERSION_FIRMWARE = process.env.VERSION_FIRMWARE || "1.2.3";
+const VERSION_PARAMETROS = process.env.VERSION_PARAMETROS || "2.1.0";
 
-// Configuración de ruta
-const ORIGEN = {
-  nombre: process.env.ORIGEN_NOMBRE || 'Almacén Central Madrid',
-  lat: parseFloat(process.env.ORIGEN_LAT) || 40.4168,
-  lng: parseFloat(process.env.ORIGEN_LNG) || -3.7038
-};
+// Configuración de ruta GPS
+const ORIGEN_LAT = parseFloat(process.env.ORIGEN_LAT) || 40.4168;
+const ORIGEN_LNG = parseFloat(process.env.ORIGEN_LNG) || -3.7038;
+const DESTINO_LAT = parseFloat(process.env.DESTINO_LAT) || 41.3851;
+const DESTINO_LNG = parseFloat(process.env.DESTINO_LNG) || 2.1734;
 
-const DESTINO = {
-  nombre: process.env.DESTINO_NOMBRE || 'Centro Comercial Barcelona',
-  lat: parseFloat(process.env.DESTINO_LAT) || 41.3851,
-  lng: parseFloat(process.env.DESTINO_LNG) || 2.1734
-};
-
-// Estados de la nevera
-const ESTADOS = {
-  PREPARADO: 'preparado',
-  EN_TRANSITO: 'en transito',
-  EN_EXTRACCION: 'en extraccion',
-  EN_INTRODUCCION: 'en introduccion'
-};
+// Total de mensajes a enviar
+const TOTAL_MENSAJES = 15;
 
 class SimuladorNeveraMQTT {
   constructor() {
     this.client = null;
-    this.indiceCoordenadasTransito = 0;
-    this.contadorMensajesTransito = 0;
-    this.maxMensajesTransito = 6; // Número de mensajes "en tránsito" a enviar
-    this.rutaCalculada = this.calcularRutaIntermedia();
+    this.rutaGPS = this.calcularRutaCompleta();
+    this.temperaturasViaje = this.generarTemperaturasViaje();
+    this.tiempoInicioServicio = Math.floor(Date.now() / 1000);
+    this.ultimaConexionGPS = Math.floor(Date.now() / 1000);
+    this.bootCounter = Math.floor(Math.random() * 1000) + 1;
+    this.numeroImpactos = 0;
+    this.topic = `cooler_${SERIAL_NEVERA}`;
   }
 
-  // Calcular puntos intermedios entre origen y destino
-  calcularRutaIntermedia() {
+  // Calcular ruta completa de 15 puntos GPS
+  calcularRutaCompleta() {
     const puntos = [];
-    const numPuntos = this.maxMensajesTransito;
     
-    console.log(`🗺️  Calculando ruta de ${ORIGEN.nombre} a ${DESTINO.nombre}`);
-    console.log(`📍 Origen: ${ORIGEN.lat}, ${ORIGEN.lng}`);
-    console.log(`🎯 Destino: ${DESTINO.lat}, ${DESTINO.lng}`);
+    console.log(`🗺️  Calculando ruta de ${TOTAL_MENSAJES} puntos`);
+    console.log(`📍 Origen: ${ORIGEN_LAT}, ${ORIGEN_LNG}`);
+    console.log(`🎯 Destino: ${DESTINO_LAT}, ${DESTINO_LNG}`);
     
-    for (let i = 0; i < numPuntos; i++) {
-      const progreso = (i + 1) / (numPuntos + 1); // +1 para no llegar exactamente al destino
+    for (let i = 0; i < TOTAL_MENSAJES; i++) {
+      const progreso = i / (TOTAL_MENSAJES - 1); // De 0 a 1
       
       // Interpolación lineal entre origen y destino
-      const lat = ORIGEN.lat + (DESTINO.lat - ORIGEN.lat) * progreso;
-      const lng = ORIGEN.lng + (DESTINO.lng - ORIGEN.lng) * progreso;
+      const lat = ORIGEN_LAT + (DESTINO_LAT - ORIGEN_LAT) * progreso;
+      const lng = ORIGEN_LNG + (DESTINO_LNG - ORIGEN_LNG) * progreso;
       
-      // Añadir algo de variación realista a la ruta (simular carreteras)
+      // Añadir variación realista para simular carreteras
       const variacionLat = (Math.random() - 0.5) * 0.01; // ±0.01 grados
       const variacionLng = (Math.random() - 0.5) * 0.01; // ±0.01 grados
       
@@ -65,20 +57,32 @@ class SimuladorNeveraMQTT {
         lat: parseFloat((lat + variacionLat).toFixed(6)),
         lng: parseFloat((lng + variacionLng).toFixed(6)),
         progreso: Math.round(progreso * 100),
-        descripcion: this.generarDescripcionUbicacion(progreso)
+        mensaje: i + 1
       });
     }
     
     return puntos;
   }
 
-  // Generar descripción de ubicación basada en el progreso
-  generarDescripcionUbicacion(progreso) {
-    if (progreso < 0.2) return "Saliendo del origen";
-    if (progreso < 0.4) return "En carretera principal";
-    if (progreso < 0.6) return "A medio camino";
-    if (progreso < 0.8) return "Aproximándose al destino";
-    return "Cerca del destino";
+  // Generar temperaturas variables durante el viaje
+  generarTemperaturasViaje() {
+    const temperaturas = [];
+    
+    // Temperatura inicial
+    let tempActual = Math.random() * 6 - 3; // Entre -3°C y 3°C
+    
+    for (let i = 0; i < TOTAL_MENSAJES; i++) {
+      // Pequeñas variaciones durante el viaje
+      const variacion = (Math.random() - 0.5) * 2; // ±1°C
+      tempActual += variacion;
+      
+      // Mantener en rango realista
+      tempActual = Math.max(-5, Math.min(5, tempActual));
+      
+      temperaturas.push(parseFloat(tempActual.toFixed(1)));
+    }
+    
+    return temperaturas;
   }
 
   // Conectar al broker MQTT
@@ -90,6 +94,7 @@ class SimuladorNeveraMQTT {
       
       this.client.on('connect', () => {
         console.log('✅ Conectado al broker MQTT exitosamente');
+        console.log(`📡 Topic: ${this.topic}`);
         resolve();
       });
       
@@ -97,116 +102,102 @@ class SimuladorNeveraMQTT {
         console.error('❌ Error de conexión MQTT:', error);
         reject(error);
       });
-      
-      this.client.on('disconnect', () => {
-        console.log('🔌 Desconectado del broker MQTT');
-      });
     });
   }
 
-  // Generar datos base de la nevera
-  generarDatosBase() {
+  // Generar datos de alarmas simulados
+  generarAlarmas() {
     return {
-      SERIAL: SERIAL_NEVERA,
-      TEMP: parseFloat((Math.random() * 10 - 5).toFixed(1)), // Entre -5°C y 5°C
-      BAT: Math.floor(Math.random() * 100) + 1, // Entre 1% y 100%
-      TIMESTAMP: Math.floor(Date.now() / 1000) // Timestamp Unix (segundos desde epoch)
+      MEMORY_FULL: Math.random() < 0.02, // 2% probabilidad
+      DOOR_OPEN_TOO_LONG: Math.random() < 0.01, // 1% probabilidad
+      COOLER_RESET: Math.random() < 0.01, // 1% probabilidad
+      EMPTYING_TIME_EXCEEDED: Math.random() < 0.02, // 2% probabilidad
+      NO_BATTERY_DURING_SERVICE: Math.random() < 0.005, // 0.5% probabilidad
+      LOW_BATTERY_DURING_SERVICE: Math.random() < 0.05, // 5% probabilidad
+      TILTED: Math.random() < 0.01, // 1% probabilidad
+      IMPACT_COUNT: this.numeroImpactos,
+      HIGH_TEMPERATURE: Math.random() < 0.03, // 3% probabilidad
+      LOW_TEMPERATURE: Math.random() < 0.02, // 2% probabilidad
+      SERVICE_TIME_EXCEEDED: Math.random() < 0.01, // 1% probabilidad
+      COOLER_CLOSED_DURING_EMPTYING: Math.random() < 0.01, // 1% probabilidad
+      WRONG_NFC_CARD: Math.random() < 0.01, // 1% probabilidad
+      SERVICE_START_WITHOUT_NFC: Math.random() < 0.005, // 0.5% probabilidad
+      COULD_NOT_OPEN_LID: Math.random() < 0.005 // 0.5% probabilidad
     };
   }
 
-  // Crear mensaje para estado "preparado"
-  crearMensajePreparado() {
-    const datosBase = this.generarDatosBase();
-    return {
-      ...datosBase,
-      MESSAGE: ESTADOS.PREPARADO,
-      ORIGIN: ORIGEN.nombre,
-      DESTINATION: DESTINO.nombre,
-      LAT: ORIGEN.lat,
-      LNG: ORIGEN.lng,
-      ID: ID_PREPARACION
-    };
-  }
-
-  // Crear mensaje para estado "en tránsito"
-  crearMensajeEnTransito() {
-    const datosBase = this.generarDatosBase();
-    const puntoRuta = this.rutaCalculada[this.indiceCoordenadasTransito];
+  // Crear mensaje para un punto específico del viaje
+  crearMensajeViaje(indicePunto) {
+    const ahora = Math.floor(Date.now() / 1000);
+    const puntoGPS = this.rutaGPS[indicePunto];
+    const temperatura = this.temperaturasViaje[indicePunto];
     
-    // Avanzar al siguiente punto de la ruta
-    this.indiceCoordenadasTransito = (this.indiceCoordenadasTransito + 1) % this.rutaCalculada.length;
+    // Simular degradación gradual de batería durante el viaje
+    const porcentajeBateriaInicial = 95;
+    const degradacionBateria = (indicePunto / (TOTAL_MENSAJES - 1)) * 20; // Hasta 20% de degradación
+    const porcentajeBateria = Math.floor(porcentajeBateriaInicial - degradacionBateria);
+    const voltajeBateria = parseFloat((4.2 - (degradacionBateria * 0.02)).toFixed(2)); // De 4.2V a 3.8V
     
-    return {
-      ...datosBase,
-      MESSAGE: ESTADOS.EN_TRANSITO,
-      ORIGIN: ORIGEN.nombre,
-      DESTINATION: DESTINO.nombre,
-      LAT: puntoRuta.lat,
-      LNG: puntoRuta.lng,
-      progreso: puntoRuta.progreso
+    // RSSI variable (señal puede variar durante el viaje)
+    const rssi = -40 - Math.floor(Math.random() * 50); // -40 a -90 dBm
+    
+    // Tiempo de servicio acumulado
+    const tiempoServicio = (indicePunto * INTERVALO_MENSAJES) / 1000; // En segundos
+    
+    // Simular impactos ocasionales
+    if (Math.random() < 0.1) { // 10% probabilidad de impacto por mensaje
+      this.numeroImpactos++;
+    }
+    
+    // Actualizar tiempo de GPS ocasionalmente
+    if (Math.random() < 0.4) { // 40% probabilidad de actualizar GPS
+      this.ultimaConexionGPS = ahora;
+    }
+    
+    const mensaje = {
+      SERIAL_NUMBER: SERIAL_NEVERA,
+      TIMESTAMP: ahora,
+      GPS_LONGITUDE: puntoGPS.lng,
+      GPS_LATITUDE: puntoGPS.lat,
+      SERVICE_ORIGIN: ORIGEN_SERVICIO,
+      SERVICE_DESTINATION: DESTINO_SERVICIO,
+      SERVICE_TYPE: TIPO_SERVICIO,
+      TEMPERATURE: temperatura,
+      BATTERY_VOLTAGE: voltajeBateria,
+      BATTERY_PERCENTAGE: porcentajeBateria,
+      SERVICE_TIME: tiempoServicio,
+      ALARMS: this.generarAlarmas(),
+      RSSI: rssi,
+      BOOT_COUNTER: this.bootCounter,
+      LAST_GPS_CONNECTION_TIME: ahora - this.ultimaConexionGPS,
+      FIRMWARE_VERSION: VERSION_FIRMWARE,
+      FIRMWARE_UPDATE_RESULT: indicePunto === 0 ? 0 : Math.floor(Math.random() * 3), // Primer mensaje siempre exitoso
+      PARAMETERS_VERSION: VERSION_PARAMETROS,
+      PARAMETERS_UPDATE_RESULT: indicePunto === 0 ? 0 : Math.floor(Math.random() * 3)
     };
-  }
-
-  // Crear mensaje para estado "en extracción"
-  crearMensajeEnExtraccion() {
-    const datosBase = this.generarDatosBase();
-    return {
-      ...datosBase,
-      MESSAGE: ESTADOS.EN_EXTRACCION,
-      ORIGIN: ORIGEN.nombre,
-      DESTINATION: DESTINO.nombre,
-      LAT: DESTINO.lat,
-      LNG: DESTINO.lng,
-      ID: ID_EXTRACCION
-    };
-  }
-
-  // Crear mensaje para estado "en introducción"
-  crearMensajeEnIntroduccion() {
-    const datosBase = this.generarDatosBase();
-    return {
-      ...datosBase,
-      MESSAGE: ESTADOS.EN_INTRODUCCION,
-      ORIGIN: ORIGEN.nombre,
-      DESTINATION: DESTINO.nombre,
-      LAT: DESTINO.lat,
-      LNG: DESTINO.lng
-    };
-  }
-
-  // Calcular distancia entre dos puntos (fórmula de Haversine)
-  calcularDistancia(lat1, lng1, lat2, lng2) {
-    const R = 6371; // Radio de la Tierra en kilómetros
-    const dLat = this.toRadians(lat2 - lat1);
-    const dLng = this.toRadians(lng2 - lng1);
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) *
-              Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return parseFloat((R * c).toFixed(2));
-  }
-
-  // Convertir grados a radianes
-  toRadians(degrees) {
-    return degrees * (Math.PI / 180);
+    
+    return mensaje;
   }
 
   // Publicar mensaje en el tópico MQTT
-  async publicarMensaje(mensaje) {
+  async publicarMensaje(mensaje, indicePunto) {
     return new Promise((resolve, reject) => {
       const mensajeJson = JSON.stringify(mensaje, null, 2);
+      const puntoGPS = this.rutaGPS[indicePunto];
       
-      console.log(`📤 Enviando mensaje: ${mensaje.MESSAGE}`);
-      console.log(`📍 Tópico: ${MQTT_TOPIC}`);
-      console.log(`📦 Payload:`, mensajeJson);
-      console.log('─'.repeat(50));
+      console.log(`📤 Mensaje ${indicePunto + 1}/${TOTAL_MENSAJES} - Progreso: ${puntoGPS.progreso}%`);
+      console.log(`📍 GPS: ${mensaje.GPS_LATITUDE}, ${mensaje.GPS_LONGITUDE}`);
+      console.log(`🌡️  Temperatura: ${mensaje.TEMPERATURE}°C`);
+      console.log(`🔋 Batería: ${mensaje.BATTERY_PERCENTAGE}% (${mensaje.BATTERY_VOLTAGE}V)`);
+      console.log(`📡 Topic: ${this.topic}`);
+      console.log('─'.repeat(60));
       
-      this.client.publish(MQTT_TOPIC, mensajeJson, { qos: 1 }, (error) => {
+      this.client.publish(this.topic, mensajeJson, { qos: 1 }, (error) => {
         if (error) {
           console.error('❌ Error al publicar mensaje:', error);
           reject(error);
         } else {
-          console.log('✅ Mensaje enviado exitosamente');
+          console.log('✅ Mensaje enviado exitosamente\n');
           resolve();
         }
       });
@@ -218,49 +209,39 @@ class SimuladorNeveraMQTT {
     return new Promise(resolve => setTimeout(resolve, milisegundos));
   }
 
-  // Ejecutar secuencia completa de mensajes
-  async ejecutarSecuencia() {
+  // Ejecutar secuencia completa de viaje
+  async ejecutarViaje() {
+    console.log('🚀 Iniciando simulación de viaje de nevera IoT...');
+    console.log(`🆔 Serial nevera: ${SERIAL_NEVERA}`);
+    console.log(`📡 Topic MQTT: ${this.topic}`);
+    console.log(`🏠 Origen servicio: ${ORIGEN_SERVICIO}`);
+    console.log(`🎯 Destino servicio: ${DESTINO_SERVICIO}`);
+    console.log(`🔧 Tipo servicio: ${TIPO_SERVICIO} (1:vacunas, 2:muestras, 3:medicamentos, 4:no servicio)`);
+    console.log(`📦 Total mensajes: ${TOTAL_MENSAJES}`);
+    console.log(`⏱️  Intervalo: ${INTERVALO_MENSAJES / 1000} segundos`);
+    console.log(`🕐 Duración total: ${(TOTAL_MENSAJES * INTERVALO_MENSAJES) / 1000} segundos`);
+    console.log('═'.repeat(70));
+    
     try {
-      console.log('🚀 Iniciando secuencia de mensajes de nevera...');
-      console.log(`🏠 Origen: ${ORIGEN.nombre} (${ORIGEN.lat}, ${ORIGEN.lng})`);
-      console.log(`🎯 Destino: ${DESTINO.nombre} (${DESTINO.lat}, ${DESTINO.lng})`);
-      console.log('─'.repeat(60));
-
-      // 1. Mensaje "preparado"
-      console.log('\n📦 FASE 1: PREPARACIÓN');
-      const mensajePreparado = this.crearMensajePreparado();
-      await this.publicarMensaje(mensajePreparado);
-      await this.esperar(INTERVALO_MENSAJES);
-
-      // 2. Mensajes "en tránsito" (múltiples)
-      console.log('\n🚛 FASE 2: EN TRÁNSITO');
-      for (let i = 0; i < this.maxMensajesTransito; i++) {
-        const mensajeTransito = this.crearMensajeEnTransito();
-        console.log(`   🗺️  Punto ${i + 1}/${this.maxMensajesTransito}: ${mensajeTransito.progreso}% del recorrido`);
-        await this.publicarMensaje(mensajeTransito);
+      for (let i = 0; i < TOTAL_MENSAJES; i++) {
+        const mensaje = this.crearMensajeViaje(i);
+        await this.publicarMensaje(mensaje, i);
         
-        if (i < this.maxMensajesTransito - 1) {
+        // Esperar antes del siguiente mensaje (excepto en el último)
+        if (i < TOTAL_MENSAJES - 1) {
+          console.log(`⏰ Esperando ${INTERVALO_MENSAJES / 1000} segundos hasta el próximo mensaje...\n`);
           await this.esperar(INTERVALO_MENSAJES);
         }
       }
-      await this.esperar(INTERVALO_MENSAJES);
-
-      // 3. Mensaje "en extracción"
-      console.log('\n📤 FASE 3: EXTRACCIÓN');
-      const mensajeExtraccion = this.crearMensajeEnExtraccion();
-      await this.publicarMensaje(mensajeExtraccion);
-      await this.esperar(INTERVALO_MENSAJES);
-
-      // 4. Mensaje "en introducción"
-      console.log('\n📥 FASE 4: INTRODUCCIÓN');
-      const mensajeIntroduccion = this.crearMensajeEnIntroduccion();
-      await this.publicarMensaje(mensajeIntroduccion);
-
-      console.log('\n🎉 Secuencia de mensajes completada exitosamente');
-      console.log('─'.repeat(60));
+      
+      console.log('═'.repeat(70));
+      console.log('🎉 ¡Viaje de nevera completado exitosamente!');
+      console.log(`📍 Nevera llegó de ${ORIGEN_LAT},${ORIGEN_LNG} a ${DESTINO_LAT},${DESTINO_LNG}`);
+      console.log(`📦 Total de ${TOTAL_MENSAJES} mensajes enviados`);
+      console.log('═'.repeat(70));
       
     } catch (error) {
-      console.error('❌ Error durante la ejecución de la secuencia:', error);
+      console.error('❌ Error durante el viaje:', error);
       throw error;
     }
   }
@@ -270,22 +251,6 @@ class SimuladorNeveraMQTT {
     if (this.client) {
       this.client.end();
       console.log('👋 Desconectado del broker MQTT');
-    }
-  }
-
-  // Ejecutar secuencia en bucle continuo
-  async ejecutarEnBucle(intervaloBucle = 60000) { // 1 minuto entre secuencias
-    console.log(`🔄 Modo bucle activado (intervalo: ${intervaloBucle / 1000}s entre secuencias)`);
-    
-    while (true) {
-      try {
-        await this.ejecutarSecuencia();
-        console.log(`⏰ Esperando ${intervaloBucle / 1000} segundos antes de la próxima secuencia...\n`);
-        await this.esperar(intervaloBucle);
-      } catch (error) {
-        console.error('❌ Error en el bucle:', error);
-        await this.esperar(5000); // Esperar 5 segundos antes de reintentar
-      }
     }
   }
 }
@@ -298,20 +263,12 @@ async function main() {
     // Conectar al broker
     await simulador.conectar();
     
-    // Verificar si se debe ejecutar en modo bucle
-    const modoBucle = process.argv.includes('--bucle') || process.argv.includes('--loop');
+    // Ejecutar viaje completo
+    await simulador.ejecutarViaje();
     
-    if (modoBucle) {
-      // Ejecutar en bucle continuo
-      await simulador.ejecutarEnBucle();
-    } else {
-      // Ejecutar una sola secuencia
-      await simulador.ejecutarSecuencia();
-      
-      // Esperar un momento antes de desconectar
-      await simulador.esperar(2000);
-      simulador.desconectar();
-    }
+    // Esperar un momento antes de desconectar
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    simulador.desconectar();
     
   } catch (error) {
     console.error('❌ Error en la aplicación:', error);

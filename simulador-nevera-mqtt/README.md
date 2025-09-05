@@ -1,16 +1,139 @@
-# Simulador de Nevera MQTT
+# 🧊 Simulador de Nevera IoT - MQTT
 
-Este proyecto es un simulador de nevera que envía mensajes MQTT con diferentes estados operacionales. Simula el comportamiento de una nevera IoT que reporta su estado, ubicación, temperatura y nivel de batería a través del protocolo MQTT.
+Simulador de nevera IoT que envía datos telemétricos a través de protocolo MQTT según especificaciones de ingeniería de Szendex.
 
-## 📋 Características
+## 📋 Especificaciones
 
-- **Estados simulados**: preparado, en tránsito, en extracción, en introducción
-- **Formato de datos**: Claves en inglés y mayúsculas (TEMP, BAT, LAT, LNG, etc.)
-- **Serial UUID**: Identificador único de la nevera en formato UUID
-- **IDs de operación**: IDs únicos para preparación y extracción
-- **Protocolo**: MQTT con broker Mosquitto
-- **Configuración flexible**: Variables de entorno para personalización
-- **Modo bucle**: Ejecución continua para pruebas prolongadas
+El simulador genera mensajes JSON con **todos los campos en inglés y mayúsculas** según las especificaciones técnicas:
+
+### 📦 Estructura del Mensaje
+
+```json
+{
+  "SERIAL_NUMBER": 123456789,
+  "TIMESTAMP": 1757073878,
+  "GPS_LONGITUDE": -3.7038,
+  "GPS_LATITUDE": 40.4168,
+  "SERVICE_ORIGIN": 1,
+  "SERVICE_DESTINATION": 2,
+  "SERVICE_TYPE": 1,
+  "TEMPERATURE": 2.5,
+  "BATTERY_VOLTAGE": 4.1,
+  "BATTERY_PERCENTAGE": 75,
+  "SERVICE_TIME": 3600,
+  "ALARMS": {
+    "MEMORY_FULL": false,
+    "DOOR_OPEN_TOO_LONG": false,
+    "COOLER_RESET": false,
+    "EMPTYING_TIME_EXCEEDED": false,
+    "NO_BATTERY_DURING_SERVICE": false,
+    "LOW_BATTERY_DURING_SERVICE": true,
+    "TILTED": false,
+    "IMPACT_COUNT": 3,
+    "HIGH_TEMPERATURE": false,
+    "LOW_TEMPERATURE": false,
+    "SERVICE_TIME_EXCEEDED": false,
+    "COOLER_CLOSED_DURING_EMPTYING": false,
+    "WRONG_NFC_CARD": false,
+    "SERVICE_START_WITHOUT_NFC": false,
+    "COULD_NOT_OPEN_LID": false
+  },
+  "RSSI": -65,
+  "BOOT_COUNTER": 358,
+  "LAST_GPS_CONNECTION_TIME": 30,
+  "FIRMWARE_VERSION": "1.2.3",
+  "FIRMWARE_UPDATE_RESULT": 0,
+  "PARAMETERS_VERSION": "2.1.0",
+  "PARAMETERS_UPDATE_RESULT": 0
+}
+```
+
+### 📡 Protocolo MQTT
+
+- **Topic**: `cooler_SNCOOLER` donde `SNCOOLER` es el número de serie
+- **QoS**: 1 (garantía de entrega)
+- **No requiere respuesta** del servidor
+
+### 🔧 Tipos de Servicio
+
+- `1`: Vacunas
+- `2`: Muestras  
+- `3`: Medicamentos
+- `4`: No servicio
+
+## 🚀 Instalación y Uso
+
+### Prerrequisitos
+```bash
+# Instalar Mosquitto MQTT broker
+brew install mosquitto
+
+# Iniciar el broker
+brew services start mosquitto
+```
+
+### Configuración
+```bash
+npm install
+cp .env.example .env
+# Editar .env con tu configuración
+```
+
+### Ejecución
+```bash
+# Ejecutar simulador continuo
+npm start
+
+# Configurar nueva ruta
+npm run configurar
+
+# Generar nuevos IDs
+npm run generar-ids
+```
+
+## ⚙️ Configuración (.env)
+
+```env
+# Broker MQTT
+MQTT_BROKER=mqtt://localhost:1883
+
+# Configuración nevera
+SERIAL_NEVERA=123456789
+ORIGEN_SERVICIO=1
+DESTINO_SERVICIO=2
+TIPO_SERVICIO=1
+
+# Timing
+INTERVALO_MENSAJES=10000
+
+# GPS
+ORIGEN_LAT=40.4168
+ORIGEN_LNG=-3.7038
+DESTINO_LAT=41.3851
+DESTINO_LNG=2.1734
+
+# Firmware
+VERSION_FIRMWARE=1.2.3
+VERSION_PARAMETROS=2.1.0
+```
+
+## 📊 Datos Simulados
+
+- **GPS**: Ruta interpolada entre origen y destino
+- **Temperatura**: -5°C a 5°C
+- **Batería**: 20% a 100% / 3.2V a 4.8V
+- **RSSI**: -30 a -100 dBm
+- **Alarmas**: Probabilidades realistas de activación
+- **Timestamps**: Unix timestamp (segundos desde epoch)
+
+## 🎯 Características
+
+✅ **Especificaciones completas** según ingeniería  
+✅ **Topic dinámico** por número de serie  
+✅ **Simulación GPS** realista  
+✅ **15 tipos de alarmas** con probabilidades  
+✅ **Datos telemétricos** completos  
+✅ **Configuración flexible** via .env
 
 ## 🚀 Instalación
 
